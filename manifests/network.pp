@@ -60,7 +60,7 @@ define podman::network (
 
   # Convert opts list to command arguments
   $_opts = $opts.reduce('') |$mem, $opt| {
-    "${mem} --flag ${opt}"
+    "${mem} --opt ${opt}"
   }
 
   # Convert $labels hash to command arguments
