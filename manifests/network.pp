@@ -7,8 +7,20 @@
 #   Disables the DNS plugin for this network which if enabled, can perform container
 #   to container name resolution.
 #
+# @param dns_servers
+#   An optional array of IP addresses to be used as upstream DNS servers by podman for the network.
+#   These are passed to the podman command as repeated `--dns` flags.
+#   if this is populated, disable_dns will be ignored
+#   NOTE: macvlan network disable the DNS implicitly
+#
 # @param driver
 #   Driver to manage the network.
+#
+# @param ipam_driver
+#   The IP address management (IPAM) driver to use for the network.
+#   Valid options are 'host-local', 'dhcp' and 'none'.
+#   For environments where you want to prevent automatic IP assignment,
+#   use 'none'.
 #
 # @param opts
 #   A list of driver specific options.
@@ -44,19 +56,27 @@
 #   }
 #
 define podman::network (
-  Enum['present', 'absent'] $ensure      = 'present',
-  Enum['bridge', 'macvlan'] $driver      = 'bridge',
-  Boolean                   $disable_dns = false,
-  Array[String]             $opts        = [],
-  Optional[String]          $gateway     = undef,
-  Boolean                   $internal    = false,
-  Optional[String]          $ip_range    = undef,
-  Hash[String,String]       $labels      = {},
-  Optional[String]          $subnet      = undef,
-  Boolean                   $ipv6        = false,
-  Optional[String]          $user        = undef,
+  Enum['present', 'absent']  $ensure      = 'present',
+  Enum['bridge', 'macvlan']  $driver      = 'bridge',
+  Optional[Enum['host-local', 'dhcp', 'none']] $ipam_driver = undef,
+  Array[Stdlib::IP::Address] $dns_servers = [],
+  Boolean                    $disable_dns = false,
+  Array[String]              $opts        = [],
+  Optional[String]           $gateway     = undef,
+  Boolean                    $internal    = false,
+  Optional[String]           $ip_range    = undef,
+  Hash[String,String]        $labels      = {},
+  Optional[String]           $subnet      = undef,
+  Boolean                    $ipv6        = false,
+  Optional[String]           $user        = undef,
 ) {
   require podman::install
+
+  # Building the IPAM flag
+  $_ipam_driver = $ipam_driver ? {
+    undef   => '',
+    default => " --ipam-driver ${ipam_driver}",
+  }
 
   # Convert opts list to command arguments
   $_opts = $opts.reduce('') |$mem, $opt| {
@@ -75,10 +95,17 @@ define podman::network (
     }
   }
 
-  # FIXME/TODO: not used (yet?)
-  $_disable_dns = $disable_dns ? {
-    true    => '--disable-dns',
-    default => '',
+  # Use a filter/map logic to turn the array into repeated --dns flags
+  # --dns imply that --disable-dns is NOT in use
+  if $dns_servers {
+    $_dns_servers = $dns_servers.map |$server| { " --dns ${server}" }.join(' ')
+    $_disable_dns = ''
+  } else {
+    $_dns_servers = ''
+    $_disable_dns = $disable_dns ? {
+      true    => ' --disable-dns',
+      default => '',
+    }
   }
 
   $_internal = $internal ? {
@@ -128,7 +155,7 @@ define podman::network (
   case $ensure {
     'present': {
       exec { "podman_create_network_${title}":
-        command => "podman network create ${title} --driver ${driver}${_opts}${_gateway}${_internal}${_ip_range}${_labels}${_subnet}${_ipv6}", # lint:ignore:140chars
+        command => "podman network create ${title} --driver ${driver}${_ipam_driver}${_opts}${_gateway}${_internal}${_ip_range}${_labels}${_subnet}${_ipv6}${_disable_dns}${_dns_servers}", # lint:ignore:140chars
         unless  => "podman network exists ${title}",
         path    => '/sbin:/usr/sbin:/bin:/usr/bin',
         require => $requires,
