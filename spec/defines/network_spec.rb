@@ -129,7 +129,7 @@ describe 'podman::network' do
       it do
         is_expected.to contain_exec('podman_create_network_testing-title').with(
           {
-            'command' => 'podman network create testing-title --driver bridge --flag test --flag ing',
+            'command' => 'podman network create testing-title --driver bridge --opt test --opt ing',
           },
         )
       end
